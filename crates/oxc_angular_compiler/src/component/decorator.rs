@@ -132,12 +132,13 @@ pub fn extract_component_metadata<'a>(
                     metadata.imports = extract_identifier_array(allocator, &prop.value);
                     // 2. The raw expression to pass to ɵɵgetComponentDepsFactory in RuntimeResolved mode
                     metadata.raw_imports = convert_oxc_expression(allocator, &prop.value);
-                    // 3. Determine if the imports array has any elements (directive dependencies).
-                    //    Angular uses: meta.isStandalone && !meta.hasDirectiveDependencies → DomOnly
-                    //    Without type info, we conservatively assume any non-empty import
-                    //    could be a directive (not just a pipe).
+                    // 3. Determine if the imports array has any non-pipe elements (directive deps).
+                    //    Angular's ngtsc (handler.ts:1326-1339) only counts MetaKind.Directive
+                    //    and MetaKind.NgModule — NOT MetaKind.Pipe. Without type info, we use
+                    //    a naming convention heuristic: identifiers ending in "Pipe" are pipes.
                     //    See: angular/packages/compiler/src/render3/view/compiler.ts:229-232
-                    metadata.has_directive_dependencies = has_any_import_elements(&prop.value);
+                    metadata.has_directive_dependencies =
+                        has_any_non_pipe_import_elements(&prop.value);
                 }
                 "exportAs" => {
                     // exportAs can be comma-separated: "foo, bar"
@@ -398,24 +399,45 @@ fn extract_string_array<'a>(
     Some(result)
 }
 
-/// Check if an imports expression has any elements that could be directive dependencies.
+/// Check if an imports expression has any non-pipe elements (directive dependencies).
 ///
-/// Returns `true` if:
-/// - The expression is a non-empty array literal (may contain directives)
-/// - The expression is not an array literal (e.g., a variable reference that could contain anything)
+/// Angular's ngtsc (handler.ts:1326-1339) only counts `MetaKind.Directive` and
+/// `MetaKind.NgModule` as directive dependencies — NOT `MetaKind.Pipe`.
 ///
-/// Returns `false` only for empty array literals (`imports: []`).
+/// Since OXC is a single-file compiler without type information, we use a naming
+/// convention heuristic: identifiers ending in "Pipe" are assumed to be pipes
+/// and do NOT count as directive dependencies. This matches the universal Angular
+/// convention where all pipe classes are named `*Pipe` (AsyncPipe, DatePipe, etc.).
 ///
-/// This is a conservative check: without type info, any non-empty import
-/// could be a directive. Angular's ngtsc has full type info to distinguish
-/// directives from pipes, but Oxc uses this heuristic.
-fn has_any_import_elements(expr: &Expression<'_>) -> bool {
-    match expr {
-        Expression::ArrayExpression(arr) => !arr.elements.is_empty(),
+/// Returns `true` (has directive dependencies) if:
+/// - The expression is not an array literal (e.g., variable reference — conservatively
+///   assumed to potentially contain directives)
+/// - The array contains any non-identifier element (spread, function call, etc.)
+/// - The array contains any identifier that does NOT end in "Pipe"
+///
+/// Returns `false` if:
+/// - The expression is an empty array literal (`imports: []`)
+/// - ALL elements in the array are identifiers ending in "Pipe"
+fn has_any_non_pipe_import_elements(expr: &Expression<'_>) -> bool {
+    let Expression::ArrayExpression(arr) = expr else {
         // Not an array literal (e.g., variable reference like `imports: MY_IMPORTS`)
         // Conservatively assume it may contain directives
-        _ => true,
+        return true;
+    };
+    for element in &arr.elements {
+        match element {
+            ArrayExpressionElement::Identifier(id) => {
+                if !id.name.ends_with("Pipe") {
+                    return true;
+                }
+            }
+            // Non-identifier elements (spread, call expressions, etc.)
+            // conservatively treated as potential directives
+            _ => return true,
+        }
     }
+    // All elements are identifiers ending in "Pipe", or the array is empty
+    false
 }
 
 /// Extract an array of identifiers (for imports).
@@ -3258,6 +3280,148 @@ mod tests {
             assert!(
                 meta.lifecycle.uses_on_changes,
                 "Expected uses_on_changes to be true for async ngOnChanges method"
+            );
+        });
+    }
+
+    // =========================================================================
+    // Directive dependency detection tests (pipe vs directive imports)
+    // =========================================================================
+    //
+    // Angular's ngtsc (handler.ts:1326-1339) only counts MetaKind.Directive
+    // and MetaKind.NgModule as directive dependencies — NOT MetaKind.Pipe.
+    // Since OXC is a single-file compiler, we use a naming convention heuristic:
+    // identifiers ending in "Pipe" are assumed to be pipes.
+
+    #[test]
+    fn test_pipe_only_imports_no_directive_dependencies() {
+        let code = r#"
+            @Component({
+                selector: 'app-test',
+                standalone: true,
+                imports: [AsyncPipe],
+                template: ''
+            })
+            class TestComponent {}
+        "#;
+        assert_metadata(code, |meta| {
+            assert!(
+                !meta.has_directive_dependencies,
+                "Pipe-only imports should not set has_directive_dependencies"
+            );
+        });
+    }
+
+    #[test]
+    fn test_multiple_pipe_imports_no_directive_dependencies() {
+        let code = r#"
+            @Component({
+                selector: 'app-test',
+                standalone: true,
+                imports: [AsyncPipe, DatePipe, SlicePipe, KeyValuePipe],
+                template: ''
+            })
+            class TestComponent {}
+        "#;
+        assert_metadata(code, |meta| {
+            assert!(
+                !meta.has_directive_dependencies,
+                "Multiple pipe-only imports should not set has_directive_dependencies"
+            );
+        });
+    }
+
+    #[test]
+    fn test_mixed_pipe_and_directive_imports_has_directive_dependencies() {
+        let code = r#"
+            @Component({
+                selector: 'app-test',
+                standalone: true,
+                imports: [AsyncPipe, HighlightDirective],
+                template: ''
+            })
+            class TestComponent {}
+        "#;
+        assert_metadata(code, |meta| {
+            assert!(
+                meta.has_directive_dependencies,
+                "Mixed imports with non-pipe should set has_directive_dependencies"
+            );
+        });
+    }
+
+    #[test]
+    fn test_directive_only_imports_has_directive_dependencies() {
+        let code = r#"
+            @Component({
+                selector: 'app-test',
+                standalone: true,
+                imports: [HighlightDirective, RouterModule],
+                template: ''
+            })
+            class TestComponent {}
+        "#;
+        assert_metadata(code, |meta| {
+            assert!(
+                meta.has_directive_dependencies,
+                "Directive-only imports should set has_directive_dependencies"
+            );
+        });
+    }
+
+    #[test]
+    fn test_empty_imports_no_directive_dependencies() {
+        let code = r#"
+            @Component({
+                selector: 'app-test',
+                standalone: true,
+                imports: [],
+                template: ''
+            })
+            class TestComponent {}
+        "#;
+        assert_metadata(code, |meta| {
+            assert!(
+                !meta.has_directive_dependencies,
+                "Empty imports should not set has_directive_dependencies"
+            );
+        });
+    }
+
+    #[test]
+    fn test_variable_imports_has_directive_dependencies() {
+        let code = r#"
+            @Component({
+                selector: 'app-test',
+                standalone: true,
+                imports: MY_IMPORTS,
+                template: ''
+            })
+            class TestComponent {}
+        "#;
+        assert_metadata(code, |meta| {
+            assert!(
+                meta.has_directive_dependencies,
+                "Variable imports should conservatively set has_directive_dependencies"
+            );
+        });
+    }
+
+    #[test]
+    fn test_spread_in_imports_has_directive_dependencies() {
+        let code = r#"
+            @Component({
+                selector: 'app-test',
+                standalone: true,
+                imports: [...SHARED_IMPORTS, AsyncPipe],
+                template: ''
+            })
+            class TestComponent {}
+        "#;
+        assert_metadata(code, |meta| {
+            assert!(
+                meta.has_directive_dependencies,
+                "Spread in imports should conservatively set has_directive_dependencies"
             );
         });
     }

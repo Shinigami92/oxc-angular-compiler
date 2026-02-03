@@ -3441,6 +3441,102 @@ export class TestComponent {}
     );
 }
 
+/// Test that standalone components with ONLY pipe imports use DomOnly mode.
+///
+/// Angular's ngtsc (handler.ts:1326-1339) only counts MetaKind.Directive and
+/// MetaKind.NgModule as directive dependencies — NOT MetaKind.Pipe. Since OXC
+/// is a single-file compiler, we use the naming convention (ending in "Pipe")
+/// to identify pipes.
+#[test]
+fn test_dom_only_mode_used_for_standalone_with_pipe_only_imports() {
+    let allocator = Allocator::default();
+    let source = r#"
+import { Component } from '@angular/core';
+import { AsyncPipe } from '@angular/common';
+
+@Component({
+  selector: 'app-test',
+  standalone: true,
+  imports: [AsyncPipe],
+  template: `<div>{{ data$ | async }}</div>`
+})
+export class TestComponent {
+  data$ = null;
+}
+"#;
+
+    let options = ComponentTransformOptions { use_dom_only_mode: true, ..Default::default() };
+    let result = transform_angular_file(&allocator, "test.ts", source, &options, None);
+
+    assert!(
+        result.code.contains("ɵɵdomElementStart"),
+        "Standalone with pipe-only imports should use ɵɵdomElementStart (DomOnly). Output:\n{}",
+        result.code
+    );
+    assert!(
+        !result.code.contains("ɵɵelementStart"),
+        "Standalone with pipe-only imports should NOT use ɵɵelementStart. Output:\n{}",
+        result.code
+    );
+}
+
+/// Test that multiple pipe-only imports also use DomOnly mode.
+#[test]
+fn test_dom_only_mode_used_for_standalone_with_multiple_pipe_imports() {
+    let allocator = Allocator::default();
+    let source = r#"
+import { Component } from '@angular/core';
+import { AsyncPipe, DatePipe, SlicePipe } from '@angular/common';
+
+@Component({
+  selector: 'app-test',
+  standalone: true,
+  imports: [AsyncPipe, DatePipe, SlicePipe],
+  template: `<div>Hello</div>`
+})
+export class TestComponent {}
+"#;
+
+    let options = ComponentTransformOptions { use_dom_only_mode: true, ..Default::default() };
+    let result = transform_angular_file(&allocator, "test.ts", source, &options, None);
+
+    assert!(
+        result.code.contains("ɵɵdomElementStart"),
+        "Multiple pipe-only imports should use DomOnly mode. Output:\n{}",
+        result.code
+    );
+}
+
+/// Test that mixed pipe + directive imports still use Full mode.
+#[test]
+fn test_full_mode_used_for_standalone_with_mixed_imports() {
+    let allocator = Allocator::default();
+    let source = r#"
+import { Component, Directive } from '@angular/core';
+import { AsyncPipe } from '@angular/common';
+
+@Directive({ selector: '[appHighlight]', standalone: true })
+export class HighlightDirective {}
+
+@Component({
+  selector: 'app-test',
+  standalone: true,
+  imports: [AsyncPipe, HighlightDirective],
+  template: `<div>Hello</div>`
+})
+export class TestComponent {}
+"#;
+
+    let options = ComponentTransformOptions { use_dom_only_mode: true, ..Default::default() };
+    let result = transform_angular_file(&allocator, "test.ts", source, &options, None);
+
+    assert!(
+        result.code.contains("ɵɵelementStart"),
+        "Mixed imports should use Full mode. Output:\n{}",
+        result.code
+    );
+}
+
 /// Test that @let declaration in nested @if correctly preserves context variable.
 ///
 /// When a `@let` declaration and a subsequent expression both reference the component
