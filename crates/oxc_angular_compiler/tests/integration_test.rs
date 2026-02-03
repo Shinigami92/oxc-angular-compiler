@@ -542,6 +542,40 @@ fn test_let_used_in_ngif_child_view() {
     insta::assert_snapshot!("let_used_in_ngif_child_view", js);
 }
 
+#[test]
+fn test_let_inside_for_if_with_component_method_call() {
+    // Reproduces the _unnamed_N bug from ClickUp's stylesheet-viewer.component.html.
+    //
+    // Pattern: @for → @if → TWO @let declarations calling component methods
+    //
+    // When there are two @let expressions that both need the component context,
+    // the context variable can't be inlined (used twice) and must be extracted
+    // as a named variable like `const ctx_rN = i0.ɵɵnextContext()`.
+    //
+    // Expected (Angular):
+    //   const item_rN = i0.ɵɵnextContext().$implicit;
+    //   const ctx_rN = i0.ɵɵnextContext();
+    //   i0.ɵɵstoreLet(ctx_rN.computeA(item_rN.id));
+    //   ...
+    //   const b_rN = i0.ɵɵstoreLet(ctx_rN.computeB(item_rN.text));
+    //
+    // Actual (Oxc bug):
+    //   const item_rN = i0.ɵɵnextContext().$implicit;
+    //   i0.ɵɵstoreLet(_unnamed_N.computeA(item_rN.id));
+    //   ...
+    //   const b_rN = i0.ɵɵstoreLet(i0.ɵɵnextContext().computeB(item_rN.text));
+    let js = compile_template_to_js(
+        r#"@for (item of items; track item) { @if (showDetail()) { @let a = computeA(item.id); @let b = computeB(item.text); @if (a > 0) { <div>{{b}}</div> } } }"#,
+        "TestComponent",
+    );
+    // The output must NOT contain _unnamed_ - all variables should be properly named
+    assert!(
+        !js.contains("_unnamed_"),
+        "Generated JS contains _unnamed_ references, indicating a naming bug.\nGenerated JS:\n{js}"
+    );
+    insta::assert_snapshot!("let_inside_for_if_with_component_method_call", js);
+}
+
 // ============================================================================
 // ng-content Tests
 // ============================================================================

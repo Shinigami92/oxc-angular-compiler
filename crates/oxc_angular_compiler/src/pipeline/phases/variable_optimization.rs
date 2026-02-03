@@ -275,7 +275,61 @@ fn collect_op_fences(op: &UpdateOp<'_>) -> Fence {
         UpdateOp::Control(ctrl) => collect_fences(&ctrl.expression),
         UpdateOp::I18nExpression(i18n) => collect_fences(&i18n.expression),
         UpdateOp::DeferWhen(defer_when) => collect_fences(&defer_when.condition),
-        UpdateOp::Statement(_) => Fence::NONE,
+        UpdateOp::Statement(stmt) => collect_fences_in_output_statement(&stmt.statement),
+        _ => Fence::NONE,
+    }
+}
+
+/// Collect fences from an OutputStatement.
+fn collect_fences_in_output_statement(stmt: &OutputStatement<'_>) -> Fence {
+    match stmt {
+        OutputStatement::Expression(expr_stmt) => {
+            collect_fences_in_output_expression(&expr_stmt.expr)
+        }
+        OutputStatement::If(if_stmt) => {
+            let mut fences = collect_fences_in_output_expression(&if_stmt.condition);
+            for s in if_stmt.true_case.iter() {
+                fences |= collect_fences_in_output_statement(s);
+            }
+            for s in if_stmt.false_case.iter() {
+                fences |= collect_fences_in_output_statement(s);
+            }
+            fences
+        }
+        OutputStatement::Return(ret) => collect_fences_in_output_expression(&ret.value),
+        _ => Fence::NONE,
+    }
+}
+
+/// Collect fences from an OutputExpression.
+fn collect_fences_in_output_expression(expr: &OutputExpression<'_>) -> Fence {
+    match expr {
+        OutputExpression::WrappedIrNode(wrapped) => collect_fences(&wrapped.node),
+        OutputExpression::BinaryOperator(bin) => {
+            collect_fences_in_output_expression(&bin.lhs)
+                | collect_fences_in_output_expression(&bin.rhs)
+        }
+        OutputExpression::Conditional(cond) => {
+            let mut fences = collect_fences_in_output_expression(&cond.condition);
+            fences |= collect_fences_in_output_expression(&cond.true_case);
+            if let Some(ref false_case) = cond.false_case {
+                fences |= collect_fences_in_output_expression(false_case);
+            }
+            fences
+        }
+        OutputExpression::InvokeFunction(call) => {
+            let mut fences = collect_fences_in_output_expression(&call.fn_expr);
+            for arg in call.args.iter() {
+                fences |= collect_fences_in_output_expression(arg);
+            }
+            fences
+        }
+        OutputExpression::Not(unary) => collect_fences_in_output_expression(&unary.condition),
+        OutputExpression::ReadProp(prop) => collect_fences_in_output_expression(&prop.receiver),
+        OutputExpression::ReadKey(keyed) => {
+            collect_fences_in_output_expression(&keyed.receiver)
+                | collect_fences_in_output_expression(&keyed.index)
+        }
         _ => Fence::NONE,
     }
 }
@@ -1224,6 +1278,9 @@ where
         UpdateOp::DeferWhen(defer_when) => {
             visit_all_expressions(&defer_when.condition, &mut visitor)
         }
+        UpdateOp::Statement(stmt) => {
+            visit_ir_expressions_in_output_statement(&stmt.statement, &mut visitor);
+        }
         _ => {}
     }
 }
@@ -1352,6 +1409,86 @@ where
             }
         }
         // Leaf expressions
+        _ => {}
+    }
+}
+
+/// Visit IR expressions inside an OutputStatement.
+///
+/// Statement ops are created by `convert_variables_to_statements` when unused
+/// side-effectful variables (like StoreLet) are converted from Variable ops to
+/// standalone expression statements. The IR expressions inside these statements
+/// still contain ReadVariable references that must be counted for correct
+/// context variable inlining decisions.
+fn visit_ir_expressions_in_output_statement<F>(stmt: &OutputStatement<'_>, visitor: &mut F)
+where
+    F: FnMut(&IrExpression<'_>),
+{
+    match stmt {
+        OutputStatement::Expression(expr_stmt) => {
+            visit_ir_expressions_in_output_expression(&expr_stmt.expr, visitor);
+        }
+        OutputStatement::If(if_stmt) => {
+            visit_ir_expressions_in_output_expression(&if_stmt.condition, visitor);
+            for s in if_stmt.true_case.iter() {
+                visit_ir_expressions_in_output_statement(s, visitor);
+            }
+            for s in if_stmt.false_case.iter() {
+                visit_ir_expressions_in_output_statement(s, visitor);
+            }
+        }
+        OutputStatement::Return(ret) => {
+            visit_ir_expressions_in_output_expression(&ret.value, visitor);
+        }
+        _ => {}
+    }
+}
+
+/// Visit IR expressions inside an OutputExpression.
+///
+/// Traverses OutputExpression tree to find WrappedIrNode nodes which contain
+/// actual IR expressions that may reference variables.
+fn visit_ir_expressions_in_output_expression<F>(expr: &OutputExpression<'_>, visitor: &mut F)
+where
+    F: FnMut(&IrExpression<'_>),
+{
+    match expr {
+        OutputExpression::WrappedIrNode(wrapped) => {
+            visit_all_expressions(&wrapped.node, visitor);
+        }
+        OutputExpression::BinaryOperator(bin) => {
+            visit_ir_expressions_in_output_expression(&bin.lhs, visitor);
+            visit_ir_expressions_in_output_expression(&bin.rhs, visitor);
+        }
+        OutputExpression::Conditional(cond) => {
+            visit_ir_expressions_in_output_expression(&cond.condition, visitor);
+            visit_ir_expressions_in_output_expression(&cond.true_case, visitor);
+            if let Some(ref false_case) = cond.false_case {
+                visit_ir_expressions_in_output_expression(false_case, visitor);
+            }
+        }
+        OutputExpression::InvokeFunction(call) => {
+            visit_ir_expressions_in_output_expression(&call.fn_expr, visitor);
+            for arg in call.args.iter() {
+                visit_ir_expressions_in_output_expression(arg, visitor);
+            }
+        }
+        OutputExpression::Not(unary) => {
+            visit_ir_expressions_in_output_expression(&unary.condition, visitor);
+        }
+        OutputExpression::Instantiate(inst) => {
+            visit_ir_expressions_in_output_expression(&inst.class_expr, visitor);
+            for arg in inst.args.iter() {
+                visit_ir_expressions_in_output_expression(arg, visitor);
+            }
+        }
+        OutputExpression::ReadProp(prop) => {
+            visit_ir_expressions_in_output_expression(&prop.receiver, visitor);
+        }
+        OutputExpression::ReadKey(keyed) => {
+            visit_ir_expressions_in_output_expression(&keyed.receiver, visitor);
+            visit_ir_expressions_in_output_expression(&keyed.index, visitor);
+        }
         _ => {}
     }
 }
