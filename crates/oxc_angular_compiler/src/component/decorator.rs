@@ -131,6 +131,12 @@ pub fn extract_component_metadata<'a>(
                     metadata.imports = extract_identifier_array(allocator, &prop.value);
                     // 2. The raw expression to pass to ɵɵgetComponentDepsFactory in RuntimeResolved mode
                     metadata.raw_imports = convert_oxc_expression(allocator, &prop.value);
+                    // 3. Determine if the imports array has any elements (directive dependencies).
+                    //    Angular uses: meta.isStandalone && !meta.hasDirectiveDependencies → DomOnly
+                    //    Without type info, we conservatively assume any non-empty import
+                    //    could be a directive (not just a pipe).
+                    //    See: angular/packages/compiler/src/render3/view/compiler.ts:229-232
+                    metadata.has_directive_dependencies = has_any_import_elements(&prop.value);
                 }
                 "exportAs" => {
                     // exportAs can be comma-separated: "foo, bar"
@@ -389,6 +395,26 @@ fn extract_string_array<'a>(
     }
 
     Some(result)
+}
+
+/// Check if an imports expression has any elements that could be directive dependencies.
+///
+/// Returns `true` if:
+/// - The expression is a non-empty array literal (may contain directives)
+/// - The expression is not an array literal (e.g., a variable reference that could contain anything)
+///
+/// Returns `false` only for empty array literals (`imports: []`).
+///
+/// This is a conservative check: without type info, any non-empty import
+/// could be a directive. Angular's ngtsc has full type info to distinguish
+/// directives from pipes, but Oxc uses this heuristic.
+fn has_any_import_elements(expr: &Expression<'_>) -> bool {
+    match expr {
+        Expression::ArrayExpression(arr) => !arr.elements.is_empty(),
+        // Not an array literal (e.g., variable reference like `imports: MY_IMPORTS`)
+        // Conservatively assume it may contain directives
+        _ => true,
+    }
 }
 
 /// Extract an array of identifiers (for imports).

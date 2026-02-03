@@ -3086,3 +3086,146 @@ fn test_parenthesized_safe_navigation_keyed_access() {
         "Safe ternary should be wrapped in parentheses before keyed access. Output:\n{js}"
     );
 }
+
+/// Test that standalone components WITH directive imports use Full mode (elementStart)
+/// even when use_dom_only_mode is set to true.
+///
+/// Angular determines compilation mode from component metadata:
+///   meta.isStandalone && !meta.hasDirectiveDependencies → DomOnly
+///   otherwise → Full
+///
+/// See: angular/packages/compiler/src/render3/view/compiler.ts lines 229-232
+#[test]
+fn test_dom_only_mode_not_used_when_component_has_imports() {
+    let allocator = Allocator::default();
+    let source = r#"
+import { Component, Directive } from '@angular/core';
+
+@Directive({ selector: '[appHighlight]', standalone: true })
+export class HighlightDirective {}
+
+@Component({
+  selector: 'app-test',
+  standalone: true,
+  imports: [HighlightDirective],
+  template: `
+    <div>Hello</div>
+    @for (item of items; track item) {
+      <li>{{ item }}</li>
+    }
+  `
+})
+export class TestComponent {
+  items: string[] = [];
+}
+"#;
+
+    // Even with use_dom_only_mode: true, the compiler should detect directive dependencies
+    // from the imports array and use Full mode (elementStart, not domElementStart)
+    let options = ComponentTransformOptions { use_dom_only_mode: true, ..Default::default() };
+    let result = transform_angular_file(&allocator, "test.ts", source, &options, None);
+
+    // Should use elementStart (Full mode), NOT domElementStart (DomOnly mode)
+    assert!(
+        result.code.contains("ɵɵelementStart"),
+        "Component with imports should use ɵɵelementStart (Full mode), not domElementStart. Output:\n{}",
+        result.code
+    );
+    assert!(
+        !result.code.contains("ɵɵdomElementStart"),
+        "Component with imports should NOT use ɵɵdomElementStart. Output:\n{}",
+        result.code
+    );
+}
+
+/// Test that standalone components WITHOUT imports correctly use DomOnly mode.
+#[test]
+fn test_dom_only_mode_used_for_standalone_without_imports() {
+    let allocator = Allocator::default();
+    let source = r#"
+import { Component } from '@angular/core';
+
+@Component({
+  selector: 'app-test',
+  standalone: true,
+  template: `
+    <div>Hello</div>
+    <span>World</span>
+  `
+})
+export class TestComponent {}
+"#;
+
+    let options = ComponentTransformOptions { use_dom_only_mode: true, ..Default::default() };
+    let result = transform_angular_file(&allocator, "test.ts", source, &options, None);
+
+    // Should use domElementStart (DomOnly mode) for standalone with no imports
+    assert!(
+        result.code.contains("ɵɵdomElementStart"),
+        "Standalone component without imports should use ɵɵdomElementStart. Output:\n{}",
+        result.code
+    );
+    assert!(
+        !result.code.contains("ɵɵelementStart"),
+        "Standalone component without imports should NOT use ɵɵelementStart. Output:\n{}",
+        result.code
+    );
+}
+
+/// Test that non-standalone components use Full mode even with use_dom_only_mode.
+#[test]
+fn test_dom_only_mode_not_used_for_non_standalone() {
+    let allocator = Allocator::default();
+    let source = r#"
+import { Component } from '@angular/core';
+
+@Component({
+  selector: 'app-test',
+  standalone: false,
+  template: `<div>Hello</div>`
+})
+export class TestComponent {}
+"#;
+
+    let options = ComponentTransformOptions { use_dom_only_mode: true, ..Default::default() };
+    let result = transform_angular_file(&allocator, "test.ts", source, &options, None);
+
+    // Non-standalone should always use Full mode
+    assert!(
+        result.code.contains("ɵɵelementStart"),
+        "Non-standalone component should use ɵɵelementStart. Output:\n{}",
+        result.code
+    );
+    assert!(
+        !result.code.contains("ɵɵdomElementStart"),
+        "Non-standalone component should NOT use ɵɵdomElementStart. Output:\n{}",
+        result.code
+    );
+}
+
+/// Test that standalone components with empty imports use DomOnly mode.
+#[test]
+fn test_dom_only_mode_used_for_standalone_with_empty_imports() {
+    let allocator = Allocator::default();
+    let source = r#"
+import { Component } from '@angular/core';
+
+@Component({
+  selector: 'app-test',
+  standalone: true,
+  imports: [],
+  template: `<div>Hello</div>`
+})
+export class TestComponent {}
+"#;
+
+    let options = ComponentTransformOptions { use_dom_only_mode: true, ..Default::default() };
+    let result = transform_angular_file(&allocator, "test.ts", source, &options, None);
+
+    // Empty imports means no directive dependencies → DomOnly mode
+    assert!(
+        result.code.contains("ɵɵdomElementStart"),
+        "Standalone with empty imports should use ɵɵdomElementStart. Output:\n{}",
+        result.code
+    );
+}

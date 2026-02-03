@@ -1355,11 +1355,16 @@ fn compile_component_full<'a>(
     // Build ingest options from metadata and transform options
     let component_name_atom = Atom::from_in(metadata.class_name.as_str(), allocator);
 
-    // Determine compilation mode:
-    // - DomOnly is used when the component is standalone with no directive dependencies
-    // - The build tool's metadata resolver determines if DomOnly is safe
-    // - If use_dom_only_mode is true, we trust the build tool's analysis
-    let mode = if options.use_dom_only_mode {
+    // Determine compilation mode matching Angular's logic:
+    //   meta.isStandalone && !meta.hasDirectiveDependencies → DomOnly
+    //   otherwise → Full
+    // See: angular/packages/compiler/src/render3/view/compiler.ts:229-232
+    //
+    // For full component compilation, we determine this from the parsed metadata
+    // rather than relying solely on the external use_dom_only_mode flag.
+    // The metadata has standalone (from decorator) and has_directive_dependencies
+    // (from analyzing the imports array).
+    let mode = if metadata.standalone && !metadata.has_directive_dependencies {
         TemplateCompilationMode::DomOnly
     } else {
         TemplateCompilationMode::Full
