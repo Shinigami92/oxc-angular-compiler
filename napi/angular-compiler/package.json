@@ -57,6 +57,7 @@
     "build:ts": "tsdown",
     "test": "vitest run --dir ./test",
     "test:e2e": "playwright test --config=e2e/playwright.config.ts",
+    "preversion": "oxnode build.ts --platform --esm --features allocator && git add index.js index.d.ts",
     "prepublishOnly": "napi pre-publish -t npm"
   },
   "dependencies": {

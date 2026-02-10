@@ -61,10 +61,10 @@ export const PRESETS: Record<string, Preset> = {
     projectRoot: MATERIAL_ANGULAR_PROJECT_ROOT,
     tsconfigPath: resolve(MATERIAL_ANGULAR_PROJECT_ROOT, 'tsconfig.json'),
   },
-  // ClickUp Frontend - Full project (5,600+ components)
+  // ClickUp Frontend - Full project (5,900+ components)
   clickup: {
     name: 'clickup',
-    description: 'ClickUp Frontend - full project (5,600+ components)',
+    description: 'ClickUp Frontend - full project (5,900+ components)',
     include: ['**/*.component.ts'],
     exclude: [
       '**/node_modules/**',
@@ -77,6 +77,7 @@ export const PRESETS: Record<string, Preset> = {
       '**/*stub*.ts',
       '**/testing/**',
       '**/client-e2e/**',
+      '**/__fixtures__/**',
     ],
     projectRoot: CLICKUP_FRONTEND_PROJECT_ROOT,
     tsconfigPath: resolve(CLICKUP_FRONTEND_PROJECT_ROOT, 'tsconfig.base.json'),
