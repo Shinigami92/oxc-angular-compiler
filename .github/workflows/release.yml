@@ -138,6 +138,9 @@ jobs:
       - name: Move artifacts
         run: pnpm --filter ./napi/angular-compiler artifacts
 
+      - name: Build TypeScript
+        run: pnpm --filter ./napi/angular-compiler build:ts
+
       - uses: actions/setup-node@v6
         with:
           registry-url: 'https://npm.pkg.github.com'
