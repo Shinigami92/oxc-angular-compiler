@@ -9,7 +9,7 @@
     "declaration": true,
     "declarationMap": true,
     "outDir": "./dist",
-    "rootDir": ".",
+    "rootDir": "./vite-plugin",
     "allowJs": true,
     "composite": true,
     "resolveJsonModule": true

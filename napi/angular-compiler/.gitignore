@@ -9,3 +9,4 @@
 /e2e/compare/dist
 /benchmarks/typedb-web/dist
 /e2e/app/dist
+/tsconfig.tsbuildinfo

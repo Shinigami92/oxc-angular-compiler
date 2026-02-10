@@ -25,10 +25,10 @@
   "typesVersions": {
     "*": {
       "build-optimizer": [
-        "./dist/angular-build-optimizer-plugin.d.mts"
+        "./dist/angular-build-optimizer-plugin.d.ts"
       ],
       "vite-plugin": [
-        "./dist/index.d.mts"
+        "./dist/index.d.ts"
       ]
     }
   },
@@ -40,8 +40,8 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.mts",
-      "default": "./dist/index.mjs"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./api": {
       "types": "./index.d.ts",
@@ -54,7 +54,7 @@
     "build-test": "oxnode build.ts --esm --platform --features allocator,cross_file_elision && pnpm run build:ts",
     "build": "pnpm run build:native && pnpm run build:ts",
     "build:native": "pnpm run build-dev --release",
-    "build:ts": "tsdown",
+    "build:ts": "tsc -p tsconfig.json",
     "test": "vitest run --dir ./test",
     "test:e2e": "playwright test --config=e2e/playwright.config.ts",
     "preversion": "oxnode build.ts --platform --esm --features allocator && git add index.js index.d.ts",
@@ -71,7 +71,6 @@
     "@playwright/test": "^1.58.0",
     "@types/node": "catalog:",
     "oxfmt": "catalog:",
-    "tsdown": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
