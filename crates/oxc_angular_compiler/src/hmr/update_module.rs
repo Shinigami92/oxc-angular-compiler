@@ -146,9 +146,20 @@ fn generate_hmr_update_module_internal(
     }
 
     // Update the component definition using ɵɵdefineComponent
-    // We spread the existing definition and override template/styles
+    // We spread the existing definition and override template/styles.
+    // IMPORTANT: We must override `inputs` with `inputConfig` because the spread
+    // includes `inputs` in the already-processed format (output of
+    // `parseAndConvertInputsForDefinition`). If we don't override, ɵɵdefineComponent
+    // will process them again, producing corrupted input mappings.
+    // `inputConfig` stores the original unprocessed inputs format.
+    // Only override when inputConfig exists (components with inputs); otherwise
+    // setting `inputs: undefined` would corrupt the component definition.
     output.push_str(&format!("  {}.ɵcmp = i0.ɵɵdefineComponent({{\n", class_name));
     output.push_str(&format!("    ...{}.ɵcmp,\n", class_name));
+    output.push_str(&format!(
+        "    ...({cn}.ɵcmp.inputConfig ? {{ inputs: {cn}.ɵcmp.inputConfig }} : {{}}),\n",
+        cn = class_name
+    ));
 
     // Add template function if present
     if let Some(template_js) = template_js {
@@ -253,6 +264,28 @@ mod tests {
         let decl_pos = result.find("App_For_1").unwrap();
         let cmp_pos = result.find("ɵcmp").unwrap();
         assert!(decl_pos < cmp_pos);
+    }
+
+    #[test]
+    fn test_generate_hmr_update_module_uses_input_config() {
+        let result = generate_hmr_update_module_from_js(
+            "src/app/app.component.ts@AppComponent",
+            "function AppComponent_Template(rf, ctx) { }",
+            None,
+            None,
+            None,
+        );
+
+        // The HMR module must conditionally override `inputs` with `inputConfig`
+        // to avoid double-processing by `parseAndConvertInputsForDefinition`.
+        // It must only do so when inputConfig exists to avoid setting inputs to undefined.
+        assert!(result.contains("AppComponent.ɵcmp.inputConfig"));
+        assert!(result.contains("inputs:"));
+
+        // `inputs` override must come AFTER the spread to take precedence
+        let spread_pos = result.find("...AppComponent.ɵcmp").unwrap();
+        let inputs_pos = result.find("inputConfig").unwrap();
+        assert!(inputs_pos > spread_pos);
     }
 
     #[test]
