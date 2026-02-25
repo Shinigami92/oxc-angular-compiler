@@ -274,8 +274,7 @@ async function runViteBuild(verbose: boolean): Promise<BenchmarkResult> {
 async function runWebpackBuild(verbose: boolean): Promise<BenchmarkResult> {
   log("Running Webpack build (bitwarden's build:oss)...", 'yellow')
 
-  // Check if pnpm is available in bitwarden
-  const result = await runCommand('pnpm', ['run', 'build:oss'], BITWARDEN_WEB, verbose)
+  const result = await runCommand('npm', ['run', 'build:oss'], BITWARDEN_WEB, verbose)
 
   const { size, fileCount } = getDirectorySize(WEBPACK_DIST)
 

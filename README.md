@@ -246,7 +246,37 @@ oxc-angular-compiler/
 
 ## Benchmarks
 
-The compiler achieves significant performance improvements over the official TypeScript-based Angular compiler. Benchmarks are available in `napi/angular-compiler/benchmarks/`.
+### Bitwarden Web Vault (Cold Production Build)
+
+Measured on Apple M3 Max (16 cores, 128 GB RAM), Node.js 22.22.0, 3 iterations averaged.
+
+| Builder                      | Average   | Speedup   |
+| ---------------------------- | --------- | --------- |
+| Vite + OXC Angular Compiler  | **4.55s** | **20.7x** |
+| Webpack + `@ngtools/webpack` | 1m 34.2s  | baseline  |
+
+### Running Benchmarks
+
+```bash
+cd napi/angular-compiler/benchmarks/bitwarden
+
+# Install dependencies
+pnpm install
+
+# Run full benchmark (cold + incremental, 3 iterations)
+pnpm benchmark
+
+# Cold build only
+pnpm benchmark --cold
+
+# Vite/OXC only (no baseline comparison)
+pnpm benchmark --vite-only
+
+# Custom iteration count
+pnpm benchmark --iterations=5
+```
+
+See `napi/angular-compiler/benchmarks/` for additional benchmark targets.
 
 ## Contributing
 
