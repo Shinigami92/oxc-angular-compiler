@@ -13,6 +13,11 @@
       "automerge": true,
       "autoApprove": true,
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"]
+    },
+    {
+      "matchPackageNames": ["^@angular"],
+      "rangeStrategy": "replace",
+      "groupName": "angular"
     }
   ],
   "postUpdateOptions": ["pnpmDedupe"],
