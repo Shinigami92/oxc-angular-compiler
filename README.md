@@ -1,5 +1,8 @@
 # OXC Angular Compiler
 
+> [!WARNING]
+> This project is in an experimental stage and is actively seeking maintainers.
+
 A high-performance Angular template compiler written in Rust, leveraging the [Oxc](https://github.com/oxc-project/oxc) infrastructure for blazing-fast compilation.
 
 ## Features
